@@ -3,6 +3,11 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+def otaKeystorePath = System.getenv("HY300_SIGNING_KEYSTORE")
+def otaStorePassword = System.getenv("HY300_SIGNING_STORE_PASSWORD")
+def otaKeyAlias = System.getenv("HY300_SIGNING_KEY_ALIAS")
+def otaKeyPassword = System.getenv("HY300_SIGNING_KEY_PASSWORD")
+
 android {
     namespace 'dev.tvspecialist.hy300light'
     compileSdk 33
@@ -16,6 +21,16 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (otaKeystorePath) {
+                signingConfig signingConfigs.create("ota") {
+                    storeFile file(otaKeystorePath)
+                    storePassword otaStorePassword
+                    keyAlias otaKeyAlias
+                    keyPassword otaKeyPassword
+                }
+            }
+        }
         release {
             minifyEnabled true
             shrinkResources true

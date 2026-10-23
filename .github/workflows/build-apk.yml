@@ -24,20 +24,28 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Ensure persistent debug keystore so updates never conflict
+      - name: Build and sign APK with persistent key
+        env:
+          HY300_SIGNING_KEYSTORE_BASE64: ${{ secrets.HY300_SIGNING_KEYSTORE_BASE64 }}
+          HY300_SIGNING_STORE_PASSWORD: ${{ secrets.HY300_SIGNING_STORE_PASSWORD }}
+          HY300_SIGNING_KEY_ALIAS: ${{ secrets.HY300_SIGNING_KEY_ALIAS }}
+          HY300_SIGNING_KEY_PASSWORD: ${{ secrets.HY300_SIGNING_KEY_PASSWORD }}
         run: |
-          if [ -f "app/hy300-key.jks" ]; then
-            mkdir -p ~/.android
-            cp app/hy300-key.jks ~/.android/debug.keystore
-          fi
-
-      - name: Build APK with Gradle
-        run: |
+          : "${HY300_SIGNING_KEYSTORE_BASE64:?Configure os secrets de assinatura HY300 no GitHub antes de publicar releases}"
+          : "${HY300_SIGNING_STORE_PASSWORD:?Configure os secrets de assinatura HY300 no GitHub antes de publicar releases}"
+          : "${HY300_SIGNING_KEY_ALIAS:?Configure os secrets de assinatura HY300 no GitHub antes de publicar releases}"
+          : "${HY300_SIGNING_KEY_PASSWORD:?Configure os secrets de assinatura HY300 no GitHub antes de publicar releases}"
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
           curl -sL https://services.gradle.org/distributions/gradle-8.4-bin.zip -o gradle.zip
           unzip -q gradle.zip
+          signing_key="$RUNNER_TEMP/hy300-signing-key.jks"
+          trap 'rm -f "$signing_key"' EXIT
+          printf '%s' "$HY300_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$signing_key"
+          export HY300_SIGNING_KEYSTORE="$signing_key"
           ./gradle-8.4/bin/gradle assembleDebug --no-daemon --stacktrace
           cp app/build/outputs/apk/debug/app-debug.apk hy300-ultralight.apk
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          "$apksigner" verify --verbose hy300-ultralight.apk
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

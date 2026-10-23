@@ -6,8 +6,11 @@ import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
@@ -136,6 +139,10 @@ class MainActivity : Activity() {
                 }
             } catch (error: Exception) {
                 Log.e(TAG, "Falha ao verificar ou baixar atualização", error)
+                if (error is SigningCertificateMismatchException) {
+                    showSigningMismatch(button)
+                    return@execute
+                }
                 val message = when (error) {
                     is NoPublishedReleaseException ->
                         "Ainda não há uma atualização publicada no GitHub."
@@ -267,6 +274,7 @@ class MainActivity : Activity() {
             if (updateInfo.packageName != packageName) {
                 throw IllegalStateException("O APK publicado não pertence a este launcher.")
             }
+            verifyUpdateSigningCertificate(temporaryFile)
 
             if (updateFile.exists() && !updateFile.delete()) {
                 throw IllegalStateException("Não foi possível substituir o APK anterior.")
@@ -327,6 +335,60 @@ class MainActivity : Activity() {
         } catch (error: ActivityNotFoundException) {
             Log.e(TAG, "Nenhum instalador de APK está disponível", error)
             Toast.makeText(this, "Nenhum instalador de APK está disponível.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun verifyUpdateSigningCertificate(apk: File) {
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            @Suppress("DEPRECATION")
+            PackageManager.GET_SIGNATURES
+        }
+        val installedPackage = packageManager.getPackageInfo(packageName, flags)
+        val updatePackage = packageManager.getPackageArchiveInfo(apk.absolutePath, flags)
+            ?: throw IllegalStateException("O APK baixado não pôde ser validado.")
+        val installedSigners = installedPackage.signerCertificateDigests()
+        val updateSigners = updatePackage.signerCertificateDigests()
+
+        if (installedSigners == null || updateSigners == null) {
+            throw IllegalStateException("Não foi possível verificar a assinatura do APK.")
+        }
+        if (installedSigners != updateSigners) {
+            throw SigningCertificateMismatchException()
+        }
+    }
+
+    private fun PackageInfo.signerCertificateDigests(): Set<String>? {
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            signingInfo?.apkContentsSigners
+        } else {
+            @Suppress("DEPRECATION")
+            signatures
+        } ?: return null
+
+        if (signatures.isEmpty()) return null
+        return signatures.map { signature ->
+            MessageDigest.getInstance("SHA-256")
+                .digest(signature.toByteArray())
+                .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        }.toSet()
+    }
+
+    private fun showSigningMismatch(button: Button) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            button.isEnabled = true
+            button.text = "Atualizar launcher"
+            AlertDialog.Builder(this)
+                .setTitle("Assinatura incompatível")
+                .setMessage(
+                    "O Android bloqueou a atualização porque o APK publicado usa uma chave diferente da versão instalada. " +
+                        "Publique com a mesma chave original. Se ela não estiver mais disponível, será necessário " +
+                        "desinstalar o launcher e instalar a nova versão manualmente; isso pode apagar os dados do app."
+                )
+                .setPositiveButton("OK", null)
+                .show()
         }
     }
 
@@ -392,6 +454,8 @@ class MainActivity : Activity() {
     private class NoPublishedReleaseException : Exception()
 
     private class NoUpdateAssetException : Exception()
+
+    private class SigningCertificateMismatchException : Exception()
 
     // Impede que o botão Voltar do controle feche a Home
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
