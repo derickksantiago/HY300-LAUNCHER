@@ -11,8 +11,8 @@ android {
         applicationId "dev.tvspecialist.hy300light"
         minSdk 26
         targetSdk 33
-        versionCode 1
-        versionName "1.0-ultralight"
+        versionCode 2
+        versionName "1.1-ultralight"
     }
 
     buildTypes {
