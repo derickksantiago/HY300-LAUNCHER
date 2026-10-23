@@ -1,6 +1,12 @@
-name: Build HY300 APK
+name: Build and Release HY300 APK
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -18,15 +24,32 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Accept Android SDK Licenses & Build APK
+      - name: Ensure persistent debug keystore so updates never conflict
+        run: |
+          if [ -f "app/hy300-key.jks" ]; then
+            mkdir -p ~/.android
+            cp app/hy300-key.jks ~/.android/debug.keystore
+          fi
+
+      - name: Build APK with Gradle
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
           curl -sL https://services.gradle.org/distributions/gradle-8.4-bin.zip -o gradle.zip
           unzip -q gradle.zip
           ./gradle-8.4/bin/gradle assembleDebug --no-daemon --stacktrace
+          cp app/build/outputs/apk/debug/app-debug.apk hy300-ultralight.apk
 
-      - name: Upload APK
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: hy300-ultralight-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: hy300-ultralight.apk
+
+      - name: Publish to GitHub Releases (OTA Update)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "HY300 UltraLight v1.0.${{ github.run_number }}"
+          files: hy300-ultralight.apk
+          draft: false
+          prerelease: false
